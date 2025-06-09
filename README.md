@@ -5,4 +5,4 @@ Compatible for use with [BadgeSync](https://github.com/waresnew/badgesync) (thou
 
 Note: Marking the latest message as read in a conversation will mark all older messages in that conversation read as well. This is just how IMCore works.
 
-Special thanks to waresnew's BadgeSync for inspiration and itsjunetime's very helpful documentation on IMCore.
+Special thanks to waresnew's BadgeSync for inspiration and itsjunetime's [smserver](https://github.com/itsjunetime/smserver), which includes very helpful documentation on IMCore
