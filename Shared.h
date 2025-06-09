@@ -1,0 +1,40 @@
+#import <Foundation/Foundation.h>
+
+@interface NCNotificationAction : NSObject
+@property (nonatomic, readonly, copy) NSString* identifier;
+@end
+
+@interface NCNotificationGroupList : NSObject
+@property (nonatomic,readonly) unsigned long long notificationCount;
+- (NSString *)sectionIdentifier;
+@end
+
+@interface BSServiceConnectionEndpoint : NSObject
+@end
+
+@interface NCNotificationRequest : NSObject
+@property (nonatomic, readonly, copy) NSDictionary* context;
+@property NSString* sectionIdentifier; // eg. com.apple.MobileSMS
+@end
+
+@interface IMDaemonController : NSObject
+- (BOOL)connectToDaemon;
++ (IMDaemonController*)sharedController;
+@end
+
+@interface IMMessage : NSObject
+@end
+
+@interface IMChat : NSObject
+- (id)loadMessagesUpToGUID:(NSString*)arg1 date:(id)date limit:(unsigned long long)arg2 loadImmediately:(BOOL)loadImmediately;
+- (IMMessage*)messageForGUID:(NSString*)guid;
+- (void)markMessageAsRead:(IMMessage*)msg;
+@end
+
+@interface IMChatRegistry : NSObject
++ (IMChatRegistry*)sharedInstance;
+- (IMChat*)existingChatWithChatIdentifier:(NSString*)chat_id;
+@end
+
+@interface __NSCFString : NSMutableString
+@end
