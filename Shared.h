@@ -6,7 +6,6 @@
 
 @interface NCNotificationGroupList : NSObject
 @property (nonatomic,readonly) unsigned long long notificationCount;
-- (NSString *)sectionIdentifier;
 @end
 
 @interface BSServiceConnectionEndpoint : NSObject

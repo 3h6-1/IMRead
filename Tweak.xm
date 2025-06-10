@@ -1,40 +1,35 @@
 #import <Shared.h>
 #import <UserNotifications/UserNotifications.h>
 
-static NSInteger remainingNotificationsToProcess = 0;
-static BOOL isProcessingStack = NO;
+unsigned long long remainingNotificationsToProcess;
 
 %hook NCNotificationMasterList
 
 - (void)removeNotificationRequest:(NCNotificationRequest*)notif {
-    BOOL shouldProcess = NO;
-    
-    if ([notif.sectionIdentifier isEqualToString:@"com.apple.MobileSMS"] && (remainingNotificationsToProcess > 0 || isProcessingStack)) {
-            shouldProcess = YES;
-            if (remainingNotificationsToProcess > 0)
-                remainingNotificationsToProcess--;
-    }
-    
-    if (shouldProcess && [[%c(IMDaemonController) sharedController] connectToDaemon]) {
-        NSDictionary* userInfo = notif.context[@"userInfo"];
-        NSString* full_guid = userInfo[@"CKBBContextKeyMessageGUID"];
-        __NSCFString* chatId = userInfo[@"CKBBUserInfoKeyChatIdentifier"];
-        IMMessage* msg;
-        
-        NSLog(@"ChatIdentifier: %@", chatId);
-        IMChat* imchat = [[%c(IMChatRegistry) sharedInstance] existingChatWithChatIdentifier:chatId];
-        NSLog(@"IMChat: %@", imchat);
-        
-        for (int x = 0; x < 2 && !msg; x++) {
-            // credit to libsmserver for this
-            [imchat loadMessagesUpToGUID:full_guid date:nil limit:0 loadImmediately:YES];
-            for (int i = 0; i < 1000 && !msg; i++)
-                msg = [imchat messageForGUID:full_guid];
+    if (remainingNotificationsToProcess) {
+        if ([notif.sectionIdentifier isEqualToString:@"com.apple.MobileSMS"]) {
+            if ([[%c(IMDaemonController) sharedController] connectToDaemon]) {
+                NSDictionary* userInfo = notif.context[@"userInfo"];
+                NSString* full_guid = userInfo[@"CKBBContextKeyMessageGUID"];
+                __NSCFString* chatId = userInfo[@"CKBBUserInfoKeyChatIdentifier"];
+                IMMessage* msg;
+                
+                NSLog(@"ChatIdentifier: %@", chatId);
+                IMChat* imchat = [[%c(IMChatRegistry) sharedInstance] existingChatWithChatIdentifier:chatId];
+                NSLog(@"IMChat: %@", imchat);
+                
+                // Sometimes these methods don't work on the first try, so we have to keep calling them until they do.
+                for (int x = 0; x < 4 && !msg; x++) {
+                    [imchat loadMessagesUpToGUID:full_guid date:nil limit:0 loadImmediately:YES];
+                    for (int i = 0; i < 500 && !msg; i++)
+                        msg = [imchat messageForGUID:full_guid];
+                }
+                NSLog(@"Message: %@", msg);
+                [imchat markMessageAsRead:msg];
+            } else
+                NSLog(@"Couldn't connect to daemon :(");
         }
-        NSLog(@"Message: %@", msg);
-        [imchat markMessageAsRead:msg];
-    } else {
-        NSLog(@"Couldn't connect to daemon :(");
+        remainingNotificationsToProcess--;
     }
     
     %orig;
@@ -71,22 +66,18 @@ static BOOL isProcessingStack = NO;
 
 // Called when clearing a stack via swipe
 - (void)setClearingAllNotificationRequestsForCellHorizontalSwipe:(BOOL)clearing {
-    if (clearing && [[self sectionIdentifier] isEqualToString:@"com.apple.MobileSMS"]) {
+    if (clearing) {
         remainingNotificationsToProcess = self.notificationCount;
-        NSLog(@"Setting up to process %lu notifications", (unsigned long)remainingNotificationsToProcess);
+        NSLog(@"Setting up to process %llu notifications", remainingNotificationsToProcess);
     }
     %orig;
 }
 
 // Called when using clear button
 - (void)clearAll {
-    if ([[self sectionIdentifier] isEqualToString:@"com.apple.MobileSMS"]) {
-        remainingNotificationsToProcess = self.notificationCount;
-        isProcessingStack = YES;
-        NSLog(@"clearAll: Setting up to process %lu notifications", (unsigned long)remainingNotificationsToProcess);
-    }
+    remainingNotificationsToProcess = self.notificationCount;
+    NSLog(@"clearAll: Setting up to process %llu notifications", remainingNotificationsToProcess);
     %orig;
-    isProcessingStack = NO;
 }
 
 %end
