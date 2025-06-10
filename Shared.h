@@ -17,8 +17,8 @@
 @end
 
 @interface IMDaemonController : NSObject
-- (BOOL)connectToDaemon;
 + (IMDaemonController*)sharedController;
+- (BOOL)connectToDaemon;
 @end
 
 @interface IMMessage : NSObject
