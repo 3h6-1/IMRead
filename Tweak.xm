@@ -31,7 +31,6 @@ unsigned long long remainingNotificationsToProcess;
         }
         remainingNotificationsToProcess--;
     }
-    
     %orig;
 }
 
