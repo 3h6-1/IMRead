@@ -6,3 +6,5 @@ Compatible with [BadgeSync](https://github.com/waresnew/badgesync) (though not r
 Note: Marking the latest message as read in a conversation will mark all older messages in that conversation read as well. This is just how IMCore works.
 
 Special thanks to waresnew's BadgeSync for inspiration and itsjunetime's [smserver](https://github.com/itsjunetime/smserver), which includes very helpful documentation on IMCore
+
+At the moment, this only supports iOS 16+ until I can find someone to help me test on iOS 14/15.
