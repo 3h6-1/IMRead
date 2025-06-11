@@ -21,7 +21,7 @@ unsigned long long remainingNotificationsToProcess;
                 // Sometimes these methods don't work on the first try, so we have to keep calling them until they do.
                 for (int x = 0; x < 4 && !msg; x++) {
                     [imchat loadMessagesUpToGUID:full_guid date:nil limit:0 loadImmediately:YES];
-                    for (int i = 0; i < 500 && !msg; i++)
+                    for (int i = 0; i < 200 && !msg; i++)
                         msg = [imchat messageForGUID:full_guid];
                 }
                 NSLog(@"Message: %@", msg);
@@ -38,10 +38,12 @@ unsigned long long remainingNotificationsToProcess;
 
 %hook IMDaemonController
 
+/*
 // allows SpringBoard to use methods from IMCore
 - (unsigned)_capabilities {
     return 17159;
 }
+*/
 
 // for iOS 16+
 - (unsigned long long)processCapabilities {
