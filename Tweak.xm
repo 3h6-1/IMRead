@@ -1,5 +1,6 @@
 #import <Shared.h>
 #import <UserNotifications/UserNotifications.h>
+#import <Dispatch/Dispatch.h>
 
 unsigned long long remainingNotificationsToProcess;
 
@@ -12,26 +13,28 @@ unsigned long long remainingNotificationsToProcess;
                 NSDictionary* userInfo = notif.context[@"userInfo"];
                 NSString* full_guid = userInfo[@"CKBBContextKeyMessageGUID"];
                 __NSCFString* chatId = userInfo[@"CKBBUserInfoKeyChatIdentifier"];
-                IMMessage* msg;
-                // NSDate* date;
                 
                 NSLog(@"ChatIdentifier: %@", chatId);
                 IMChat* imchat = [[%c(IMChatRegistry) sharedInstance] existingChatWithChatIdentifier:chatId];
                 NSLog(@"IMChat: %@", imchat);
                 
-                // Sometimes these methods don't work on the first try, so we have to keep calling them until they do.
-                for (int x = 0; x < 4 && !msg; x++) {
-                    /*
-                    date = [NSDate date];
-                    [imchat loadMessagesUpToGUID:full_guid date:nil limit:0 loadImmediately:YES];
-                    for debugging freezes during message retrieval
-                    NSLog(@"loadMessagesUpToGUID finished in %F ms", [date timeIntervalSinceNow] * -1000.0);
-                    */
-                    for (int i = 0; i < 500 && !msg; i++)
-                        msg = [imchat messageForGUID:full_guid];
-                }
-                NSLog(@"Message: %@", msg);
-                [imchat markMessageAsRead:msg];
+                // Message retrieval is inherently inefficient, so we must do this in a new thread in order to avoid SpringBoard freezing up for a second when IMCore struggles to find a message quickly enough.
+                dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                    IMMessage* msg;
+                    NSDate* date;
+                    
+                    // Sometimes these methods don't work on the first try, so we have to keep calling them until they do.
+                    for (int x = 0; x < 4 && !msg; x++) {
+                        [imchat loadMessagesUpToGUID:full_guid date:nil limit:0 loadImmediately:YES];
+                        date = [NSDate date];
+                        for (int i = 0; i < 500 && !msg; i++)
+                            msg = [imchat messageForGUID:full_guid];
+                        // for debugging freezes during message retrieval
+                        NSLog(@"message retrieval attempt finished in %F ms", [date timeIntervalSinceNow] * -1000.0);
+                    }
+                    NSLog(@"Message: %@", msg);
+                    [imchat markMessageAsRead:msg];
+                });
             } else
                 NSLog(@"Couldn't connect to daemon :(");
         }
