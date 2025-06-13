@@ -13,6 +13,7 @@ unsigned long long remainingNotificationsToProcess;
                 NSString* full_guid = userInfo[@"CKBBContextKeyMessageGUID"];
                 __NSCFString* chatId = userInfo[@"CKBBUserInfoKeyChatIdentifier"];
                 IMMessage* msg;
+                // NSDate* date;
                 
                 NSLog(@"ChatIdentifier: %@", chatId);
                 IMChat* imchat = [[%c(IMChatRegistry) sharedInstance] existingChatWithChatIdentifier:chatId];
@@ -20,8 +21,13 @@ unsigned long long remainingNotificationsToProcess;
                 
                 // Sometimes these methods don't work on the first try, so we have to keep calling them until they do.
                 for (int x = 0; x < 4 && !msg; x++) {
+                    /*
+                    date = [NSDate date];
                     [imchat loadMessagesUpToGUID:full_guid date:nil limit:0 loadImmediately:YES];
-                    for (int i = 0; i < 200 && !msg; i++)
+                    for debugging freezes during message retrieval
+                    NSLog(@"loadMessagesUpToGUID finished in %F ms", [date timeIntervalSinceNow] * -1000.0);
+                    */
+                    for (int i = 0; i < 500 && !msg; i++)
                         msg = [imchat messageForGUID:full_guid];
                 }
                 NSLog(@"Message: %@", msg);
