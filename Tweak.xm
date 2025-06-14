@@ -19,7 +19,7 @@ static void (*original_dispatch_assert_queue)(dispatch_queue_t queue);
                 IMChat* imchat = [[%c(IMChatRegistry) sharedInstance] existingChatWithChatIdentifier:chatId];
                 NSLog(@"IMChat: %@", imchat);
                 
-                // Message retrieval is inherently inefficient, so we must do this in a new thread in order to avoid SpringBoard freezing up for a second when IMCore struggles to find the message quickly enough.
+                // Message retrieval is inherently inefficient, so we must do this in a new thread for each notif clear in order to avoid SpringBoard freezing up for a second when IMCore struggles to find the message quickly enough.
                 dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
                     IMMessage* msg;
                     NSDate* date;
@@ -101,6 +101,6 @@ static void hooked_dispatch_assert_queue(dispatch_queue_t queue) {
 }
 
 %ctor {
-    // IMCore checks if its methods are being run in the main dispatch queue, so we have to force it to think it's running in there in order for our code to run in another thread.
+    // IMCore checks if its methods are being run in the main dispatch queue, so we have to force it to think it's running in there in order for our message retrieval code to run in another thread.
     MSHookFunction((void*)dispatch_assert_queue, (void*)hooked_dispatch_assert_queue, (void**)&original_dispatch_assert_queue);
 }
