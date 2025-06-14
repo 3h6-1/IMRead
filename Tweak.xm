@@ -2,7 +2,8 @@
 #import <UserNotifications/UserNotifications.h>
 #import <Dispatch/Dispatch.h>
 
-unsigned long long remainingNotificationsToProcess;
+static unsigned long long remainingNotificationsToProcess;
+static void (*original_dispatch_assert_queue)(dispatch_queue_t queue);
 
 %hook NCNotificationMasterList
 
@@ -18,8 +19,8 @@ unsigned long long remainingNotificationsToProcess;
                 IMChat* imchat = [[%c(IMChatRegistry) sharedInstance] existingChatWithChatIdentifier:chatId];
                 NSLog(@"IMChat: %@", imchat);
                 
-                // Message retrieval is inherently inefficient, so we must do this in a new thread in order to avoid SpringBoard freezing up for a second when IMCore struggles to find a message quickly enough.
-                dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                // Message retrieval is inherently inefficient, so we must do this in a new thread in order to avoid SpringBoard freezing up for a second when IMCore struggles to find the message quickly enough.
+                dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
                     IMMessage* msg;
                     NSDate* date;
                     
@@ -91,3 +92,15 @@ unsigned long long remainingNotificationsToProcess;
 }
 
 %end
+
+static void hooked_dispatch_assert_queue(dispatch_queue_t queue) {
+    if (queue == dispatch_get_main_queue())
+        return;
+    
+    original_dispatch_assert_queue(queue);
+}
+
+%ctor {
+    // IMCore checks if its methods are being run in the main dispatch queue, so we have to force it to think it's running in there in order for our code to run in another thread.
+    MSHookFunction((void*)dispatch_assert_queue, (void*)hooked_dispatch_assert_queue, (void**)&original_dispatch_assert_queue);
+}
