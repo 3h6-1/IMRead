@@ -10,34 +10,32 @@ static void (*original_dispatch_assert_queue)(dispatch_queue_t queue);
 - (void)removeNotificationRequest:(NCNotificationRequest*)notif {
     if (remainingNotificationsToProcess) {
         if ([notif.sectionIdentifier isEqualToString:@"com.apple.MobileSMS"]) {
-            if ([[%c(IMDaemonController) sharedController] connectToDaemon]) {
-                NSDictionary* userInfo = notif.context[@"userInfo"];
-                NSString* full_guid = userInfo[@"CKBBContextKeyMessageGUID"];
-                __NSCFString* chatId = userInfo[@"CKBBUserInfoKeyChatIdentifier"];
-                
-                NSLog(@"ChatIdentifier: %@", chatId);
-                IMChat* imchat = [[%c(IMChatRegistry) sharedInstance] existingChatWithChatIdentifier:chatId];
-                NSLog(@"IMChat: %@", imchat);
-                
-                // Message retrieval is inherently inefficient, so we must do this in a new thread for each notif clear in order to avoid the main thread freezing up for a second when IMCore struggles to find the message quickly enough.
-                dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+            // Connecting to imagent may take a while, so we must do this in a new thread for each notif clear in order to avoid freezing the main thread.
+            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+                NSDate* date = [NSDate date];
+                if ([[%c(IMDaemonController) sharedController] connectToDaemon]) {
+                    // for debugging freezes when connecting to imagent
+                    NSLog(@"Connected to imagent in %F ms", [date timeIntervalSinceNow] * -1000.0);
+                    NSDictionary* userInfo = notif.context[@"userInfo"];
+                    NSString* full_guid = userInfo[@"CKBBContextKeyMessageGUID"];
+                    __NSCFString* chatId = userInfo[@"CKBBUserInfoKeyChatIdentifier"];
                     IMMessage* msg;
-                    NSDate* date;
+                    
+                    NSLog(@"ChatIdentifier: %@", chatId);
+                    IMChat* imchat = [[%c(IMChatRegistry) sharedInstance] existingChatWithChatIdentifier:chatId];
+                    NSLog(@"IMChat: %@", imchat);
                     
                     // Sometimes these methods don't work on the first try, so we have to keep calling them until they do.
                     for (int x = 0; x < 4 && !msg; x++) {
                         [imchat loadMessagesUpToGUID:full_guid date:nil limit:0 loadImmediately:YES];
-                        date = [NSDate date];
                         for (int i = 0; i < 500 && !msg; i++)
                             msg = [imchat messageForGUID:full_guid];
-                        // for debugging freezes during message retrieval
-                        NSLog(@"message retrieval attempt finished in %F ms", [date timeIntervalSinceNow] * -1000.0);
                     }
                     NSLog(@"Message: %@", msg);
                     [imchat markMessageAsRead:msg];
-                });
-            } else
-                NSLog(@"Couldn't connect to daemon :(");
+                } else
+                    NSLog(@"Couldn't connect to daemon :(");
+            });
         }
         remainingNotificationsToProcess--;
     }
@@ -102,5 +100,5 @@ static void hooked_dispatch_assert_queue(dispatch_queue_t queue) {
 
 %ctor {
     // IMCore checks if its methods are being run in the main dispatch queue, so we have to force it to think it's running in there in order for our message retrieval code to run in another thread.
-    MSHookFunction((void*)dispatch_assert_queue, (void*)hooked_dispatch_assert_queue, (void**)&original_dispatch_assert_queue);
+    MSHookFunction(dispatch_assert_queue, hooked_dispatch_assert_queue, &original_dispatch_assert_queue);
 }
