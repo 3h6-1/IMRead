@@ -99,6 +99,6 @@ static void hooked_dispatch_assert_queue(dispatch_queue_t queue) {
 }
 
 %ctor {
-    // IMCore checks if its methods are being run in the main dispatch queue, so we have to force it to think it's running in there in order for our message retrieval code to run in another thread.
+    // IMCore checks if its methods are being run in the main dispatch queue, so we have to force it to think it's running in there in order for our code to run in another thread.
     MSHookFunction(dispatch_assert_queue, hooked_dispatch_assert_queue, &original_dispatch_assert_queue);
 }
