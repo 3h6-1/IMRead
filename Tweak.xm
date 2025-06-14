@@ -19,7 +19,7 @@ static void (*original_dispatch_assert_queue)(dispatch_queue_t queue);
                 IMChat* imchat = [[%c(IMChatRegistry) sharedInstance] existingChatWithChatIdentifier:chatId];
                 NSLog(@"IMChat: %@", imchat);
                 
-                // Message retrieval is inherently inefficient, so we must do this in a new thread for each notif clear in order to avoid SpringBoard freezing up for a second when IMCore struggles to find the message quickly enough.
+                // Message retrieval is inherently inefficient, so we must do this in a new thread for each notif clear in order to avoid the main thread freezing up for a second when IMCore struggles to find the message quickly enough.
                 dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
                     IMMessage* msg;
                     NSDate* date;
