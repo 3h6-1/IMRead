@@ -1,4 +1,10 @@
-# IMRead
+<p align="center">
+  <img src="icon.png" width="128px" height="128px">
+</p>
+<h1 align="center">IMRead</h1>
+
+[<img width="150" src="https://docs.havoc.app/img/badges/get_square.svg">](https://havoc.app/package/imread)
+
 Jailbreak tweak to mark messages as read automatically after clearing their notification
 
 Compatible with [BadgeSync](https://github.com/waresnew/badgesync) (though not required)
