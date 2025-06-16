@@ -10,11 +10,10 @@ static void (*original_dispatch_assert_queue)(dispatch_queue_t queue);
 - (void)removeNotificationRequest:(NCNotificationRequest*)notif {
     if (remainingNotificationsToProcess) {
         if ([notif.sectionIdentifier isEqualToString:@"com.apple.MobileSMS"]) {
-            // Connecting to imagent may take a while, so we must do this in a new thread for each notif clear in order to avoid freezing the main thread.
+            // Fetching the IMChat may take a while, so we must do this in a new thread for each notif clear in order to avoid freezing the main thread.
             dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
                 NSDate* date = [NSDate date];
                 if ([[%c(IMDaemonController) sharedController] connectToDaemon]) {
-                    // for debugging freezes when connecting to imagent
                     NSLog(@"Connected to imagent in %F ms", [date timeIntervalSinceNow] * -1000.0);
                     NSDictionary* userInfo = notif.context[@"userInfo"];
                     NSString* full_guid = userInfo[@"CKBBContextKeyMessageGUID"];
