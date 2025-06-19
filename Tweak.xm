@@ -2,27 +2,35 @@
 #import <UserNotifications/UserNotifications.h>
 #import <Dispatch/Dispatch.h>
 
-static unsigned long long remainingNotificationsToProcess;
+static unsigned long long remainingNotificationsToProcess = 0;
 static void (*original_dispatch_assert_queue)(dispatch_queue_t queue);
+static dispatch_queue_t serialQueue = nil;
 
 %hook NCNotificationMasterList
 
 - (void)removeNotificationRequest:(NCNotificationRequest*)notif {
     if (remainingNotificationsToProcess) {
         if ([notif.sectionIdentifier isEqualToString:@"com.apple.MobileSMS"]) {
+            NSDictionary* userInfo = notif.context[@"userInfo"];
+            NSString* full_guid = userInfo[@"CKBBContextKeyMessageGUID"];
+            __NSCFString* chatId = userInfo[@"CKBBUserInfoKeyChatIdentifier"];
+            
+            NSLog(@"ChatIdentifier: %@", chatId);
+            if (!serialQueue)
+                serialQueue = dispatch_queue_create("com.3h6-1.imread_queue", DISPATCH_QUEUE_SERIAL);
             // Fetching the IMChat may take a while, so we must do this in a new thread for each notif clear in order to avoid freezing the main thread.
-            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
-                NSDate* date = [NSDate date];
+            dispatch_async(serialQueue, ^{
                 if ([[%c(IMDaemonController) sharedController] connectToDaemon]) {
-                    NSLog(@"Connected to imagent in %F ms", [date timeIntervalSinceNow] * -1000.0);
-                    NSDictionary* userInfo = notif.context[@"userInfo"];
-                    NSString* full_guid = userInfo[@"CKBBContextKeyMessageGUID"];
-                    __NSCFString* chatId = userInfo[@"CKBBUserInfoKeyChatIdentifier"];
-                    IMMessage* msg;
-                    
-                    NSLog(@"ChatIdentifier: %@", chatId);
+                    IMMessage* msg = nil;
+                    NSDate* date = [NSDate date];
                     IMChat* imchat = [[%c(IMChatRegistry) sharedInstance] existingChatWithChatIdentifier:chatId];
-                    NSLog(@"IMChat: %@", imchat);
+                    
+                    if (imchat)
+                        NSLog(@"IMChat retrieved in %F ms: %@", [date timeIntervalSinceNow] * -1000.0, imchat);
+                    else {
+                        NSLog(@"Failed to retrieve IMChat");
+                        return;
+                    }
                     
                     // Sometimes these methods don't work on the first try, so we have to keep calling them until they do.
                     for (int x = 0; x < 4 && !msg; x++) {
@@ -37,7 +45,8 @@ static void (*original_dispatch_assert_queue)(dispatch_queue_t queue);
             });
         }
         remainingNotificationsToProcess--;
-    }
+    } else
+        serialQueue = nil;
     %orig;
 }
 
@@ -46,10 +55,10 @@ static void (*original_dispatch_assert_queue)(dispatch_queue_t queue);
 %hook IMDaemonController
 
 /*
-// allows SpringBoard to use methods from IMCore
-- (unsigned)_capabilities {
-    return 17159;
-}
+ // allows SpringBoard to use methods from IMCore
+ - (unsigned)_capabilities {
+ return 17159;
+ }
 */
 
 // for iOS 16+
@@ -59,6 +68,7 @@ static void (*original_dispatch_assert_queue)(dispatch_queue_t queue);
 
 %end
 
+// These hooks are needed because sometimes removeNotificationRequest is called even when the user isn't explicitly clearing the notification.
 %hook NCBulletinActionRunner
 
 - (void)executeAction:(NCNotificationAction*)action fromOrigin:(NSString*)origin endpoint:(BSServiceConnectionEndpoint*)endpoint withParameters:(id)params completion:(id)block {
