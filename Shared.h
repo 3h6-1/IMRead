@@ -4,8 +4,20 @@
 @property (nonatomic, readonly, copy) NSString* identifier;
 @end
 
+@interface NCNotificationMasterList : NSObject
+@property NSArray* notificationSections;
+@end
+
 @interface NCNotificationGroupList : NSObject
 @property (nonatomic,readonly) unsigned long long notificationCount;
+@end
+
+@interface NCNotificationStructuredListViewController : NSObject
+@property NCNotificationMasterList* masterList;
+@end
+
+@interface NCNotificationStructuredSectionList : NSObject
+- (NSArray*)allNotificationRequests;
 @end
 
 @interface BSServiceConnectionEndpoint : NSObject

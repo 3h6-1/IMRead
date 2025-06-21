@@ -4,34 +4,60 @@
 
 static unsigned long long remainingNotificationsToProcess = 0;
 static void (*original_dispatch_assert_queue)(dispatch_queue_t queue);
-static dispatch_queue_t serialQueue = nil;
+static dispatch_queue_t serialQueue = dispatch_queue_create("com.3h6-1.imread_queue", DISPATCH_QUEUE_SERIAL);
+static NCNotificationStructuredListViewController* notifController;
+// This lets us lookup chats in O(1) time complexity.
+static NSMutableDictionary* chats = [NSMutableDictionary dictionary];
+
+BOOL isMsgNotif(NCNotificationRequest* notif) {
+    return [notif.sectionIdentifier isEqualToString:@"com.apple.MobileSMS"];
+}
+
+void performWhileConnectedToImagent(dispatch_block_t imcoreBlock) {
+    if ([[%c(IMDaemonController) sharedController] connectToDaemon]) {
+        dispatch_async(serialQueue, imcoreBlock);
+    } else
+        NSLog(@"Failed to connect to imagent :(");
+}
+
+void updateChatDictionary() {
+    [chats removeAllObjects];
+    for (NCNotificationStructuredSectionList* section in [[notifController masterList] notificationSections])
+        for (NCNotificationRequest* notif in [section allNotificationRequests])
+            if (isMsgNotif(notif))
+                // Fetching the IMChat may take a while, so we must do this in a separate serial queue for each notif clear in order to avoid freezing the main thread.
+                performWhileConnectedToImagent(^{
+                    __NSCFString* chatId = notif.context[@"userInfo"][@"CKBBUserInfoKeyChatIdentifier"];
+                    [chats setValue:[[%c(IMChatRegistry) sharedInstance] existingChatWithChatIdentifier:chatId] forKey:chatId];
+                });
+    NSLog(@"updateChatDictionary: chats = %@", chats);
+}
+
+%hook NCNotificationStructuredListViewController
+
+- (id)init {
+    self = %orig;
+    notifController = self;
+    return self;
+}
+
+%end
 
 %hook NCNotificationMasterList
 
 - (void)removeNotificationRequest:(NCNotificationRequest*)notif {
+    %orig;
     if (remainingNotificationsToProcess) {
-        if ([notif.sectionIdentifier isEqualToString:@"com.apple.MobileSMS"]) {
-            NSDictionary* userInfo = notif.context[@"userInfo"];
-            NSString* full_guid = userInfo[@"CKBBContextKeyMessageGUID"];
-            __NSCFString* chatId = userInfo[@"CKBBUserInfoKeyChatIdentifier"];
-            
-            NSLog(@"ChatIdentifier: %@", chatId);
-            if (!serialQueue)
-                serialQueue = dispatch_queue_create("com.3h6-1.imread_queue", DISPATCH_QUEUE_SERIAL);
-            // Fetching the IMChat may take a while, so we must do this in a new thread for each notif clear in order to avoid freezing the main thread.
-            dispatch_async(serialQueue, ^{
-                if ([[%c(IMDaemonController) sharedController] connectToDaemon]) {
+        if (isMsgNotif(notif)) {
+            if ([[%c(IMDaemonController) sharedController] connectToDaemon]) {
+                performWhileConnectedToImagent(^{
+                    NSDictionary* userInfo = notif.context[@"userInfo"];
+                    NSString* full_guid = userInfo[@"CKBBContextKeyMessageGUID"];
+                    __NSCFString* chatId = userInfo[@"CKBBUserInfoKeyChatIdentifier"];
+                    IMChat* imchat = chats[chatId];
                     IMMessage* msg = nil;
-                    NSDate* date = [NSDate date];
-                    IMChat* imchat = [[%c(IMChatRegistry) sharedInstance] existingChatWithChatIdentifier:chatId];
                     
-                    if (imchat)
-                        NSLog(@"IMChat retrieved in %F ms: %@", [date timeIntervalSinceNow] * -1000.0, imchat);
-                    else {
-                        NSLog(@"Failed to retrieve IMChat");
-                        return;
-                    }
-                    
+                    NSLog(@"removeNotificationRequest: chats = %@", chats);
                     // Sometimes these methods don't work on the first try, so we have to keep calling them until they do.
                     for (int x = 0; x < 4 && !msg; x++) {
                         [imchat loadMessagesUpToGUID:full_guid date:nil limit:0 loadImmediately:YES];
@@ -40,14 +66,18 @@ static dispatch_queue_t serialQueue = nil;
                     }
                     NSLog(@"Message: %@", msg);
                     [imchat markMessageAsRead:msg];
-                } else
-                    NSLog(@"Couldn't connect to daemon :(");
-            });
+                });
+            } else
+                NSLog(@"Failed to connect to imagent :(");
         }
         remainingNotificationsToProcess--;
     } else
-        serialQueue = nil;
+        updateChatDictionary();
+}
+
+- (void)insertNotificationRequest:(NCNotificationRequest*)notif {
     %orig;
+    updateChatDictionary();
 }
 
 %end
