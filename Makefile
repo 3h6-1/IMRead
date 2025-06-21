@@ -7,7 +7,7 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = IMRead
 
-IMRead_FILES = Tweak.xm
+IMRead_FILES = Tweak.x
 IMRead_CFLAGS = -fobjc-arc
 IMRead_FRAMEWORKS = Foundation
 IMRead_PRIVATE_FRAMEWORKS = IMCore
