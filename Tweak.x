@@ -4,10 +4,10 @@
 
 static unsigned long long remainingNotificationsToProcess = 0;
 static void (*original_dispatch_assert_queue)(dispatch_queue_t queue);
-static dispatch_queue_t serialQueue = dispatch_queue_create("com.3h6-1.imread_queue", DISPATCH_QUEUE_SERIAL);
 static NCNotificationStructuredListViewController* notifController;
-// This lets us lookup chats in O(1) time complexity.
-static NSMutableDictionary* chats = [NSMutableDictionary dictionary];
+static dispatch_queue_t serialQueue;
+// These let us do message lookup in O(1) time complexity.
+NSMutableDictionary* chats, * msgs;
 
 BOOL isMsgNotif(NCNotificationRequest* notif) {
     return [notif.sectionIdentifier isEqualToString:@"com.apple.MobileSMS"];
@@ -20,17 +20,31 @@ void performWhileConnectedToImagent(dispatch_block_t imcoreBlock) {
         NSLog(@"Failed to connect to imagent :(");
 }
 
-void updateChatDictionary() {
+void updateDictionaries() {
     [chats removeAllObjects];
-    for (NCNotificationStructuredSectionList* section in [[notifController masterList] notificationSections])
-        for (NCNotificationRequest* notif in [section allNotificationRequests])
-            if (isMsgNotif(notif))
-                // Fetching the IMChat may take a while, so we must do this in a separate serial queue for each notif clear in order to avoid freezing the main thread.
-                performWhileConnectedToImagent(^{
-                    __NSCFString* chatId = notif.context[@"userInfo"][@"CKBBUserInfoKeyChatIdentifier"];
-                    [chats setValue:[[%c(IMChatRegistry) sharedInstance] existingChatWithChatIdentifier:chatId] forKey:chatId];
-                });
-    NSLog(@"updateChatDictionary: chats = %@", chats);
+    [msgs removeAllObjects];
+    // Loading the chats and messages may take a while, so we must do this in a separate serial queue in order to avoid freezing the main thread.
+    performWhileConnectedToImagent(^{
+        for (NCNotificationStructuredSectionList* section in [[notifController masterList] notificationSections])
+            for (NCNotificationRequest* notif in [section allNotificationRequests])
+                if (isMsgNotif(notif)) {
+                    NSDictionary* userInfo = notif.context[@"userInfo"];
+                    NSString* full_guid = userInfo[@"CKBBContextKeyMessageGUID"];
+                    __NSCFString* chatId = userInfo[@"CKBBUserInfoKeyChatIdentifier"];
+                    IMChat* imchat = [[%c(IMChatRegistry) sharedInstance] existingChatWithChatIdentifier:chatId];
+                    IMMessage* msg = nil;
+                    
+                    [chats setValue:imchat forKey:chatId];
+                    // Sometimes these methods don't work on the first try, so we have to keep calling them until they do.
+                    for (int x = 0; x < 4 && !msg; x++) {
+                        [imchat loadMessagesUpToGUID:full_guid date:nil limit:0 loadImmediately:YES];
+                        for (int i = 0; i < 500 && !msg; i++)
+                            msg = [imchat messageForGUID:full_guid];
+                    }
+                    if (msg)
+                        [msgs setValue:msg forKey:full_guid];
+                }
+    });
 }
 
 %hook NCNotificationStructuredListViewController
@@ -48,36 +62,20 @@ void updateChatDictionary() {
 - (void)removeNotificationRequest:(NCNotificationRequest*)notif {
     %orig;
     if (remainingNotificationsToProcess) {
-        if (isMsgNotif(notif)) {
-            if ([[%c(IMDaemonController) sharedController] connectToDaemon]) {
-                performWhileConnectedToImagent(^{
-                    NSDictionary* userInfo = notif.context[@"userInfo"];
-                    NSString* full_guid = userInfo[@"CKBBContextKeyMessageGUID"];
-                    __NSCFString* chatId = userInfo[@"CKBBUserInfoKeyChatIdentifier"];
-                    IMChat* imchat = chats[chatId];
-                    IMMessage* msg = nil;
-                    
-                    NSLog(@"removeNotificationRequest: chats = %@", chats);
-                    // Sometimes these methods don't work on the first try, so we have to keep calling them until they do.
-                    for (int x = 0; x < 4 && !msg; x++) {
-                        [imchat loadMessagesUpToGUID:full_guid date:nil limit:0 loadImmediately:YES];
-                        for (int i = 0; i < 500 && !msg; i++)
-                            msg = [imchat messageForGUID:full_guid];
-                    }
-                    NSLog(@"Message: %@", msg);
-                    [imchat markMessageAsRead:msg];
-                });
-            } else
-                NSLog(@"Failed to connect to imagent :(");
-        }
+        if (isMsgNotif(notif))
+            performWhileConnectedToImagent(^{
+                NSDictionary* userInfo = notif.context[@"userInfo"];
+                [chats[userInfo[@"CKBBUserInfoKeyChatIdentifier"]] markMessageAsRead:msgs[userInfo[@"CKBBContextKeyMessageGUID"]]];
+            });
         remainingNotificationsToProcess--;
     } else
-        updateChatDictionary();
+        updateDictionaries();
 }
 
 - (void)insertNotificationRequest:(NCNotificationRequest*)notif {
     %orig;
-    updateChatDictionary();
+    if (isMsgNotif(notif))
+        updateDictionaries();
 }
 
 %end
@@ -116,7 +114,6 @@ void updateChatDictionary() {
 - (void)setClearingAllNotificationRequestsForCellHorizontalSwipe:(BOOL)clearing {
     if (clearing) {
         remainingNotificationsToProcess = self.notificationCount;
-        NSLog(@"Setting up to process %llu notifications", remainingNotificationsToProcess);
     }
     %orig;
 }
@@ -124,7 +121,6 @@ void updateChatDictionary() {
 // Called when using clear button
 - (void)clearAll {
     remainingNotificationsToProcess = self.notificationCount;
-    NSLog(@"clearAll: Setting up to process %llu notifications", remainingNotificationsToProcess);
     %orig;
 }
 
@@ -139,5 +135,8 @@ static void hooked_dispatch_assert_queue(dispatch_queue_t queue) {
 
 %ctor {
     // IMCore checks if its methods are being run in the main dispatch queue, so we have to force it to think it's running in there in order for our code to run in another thread.
-    MSHookFunction(dispatch_assert_queue, hooked_dispatch_assert_queue, &original_dispatch_assert_queue);
+    MSHookFunction(dispatch_assert_queue, hooked_dispatch_assert_queue, (void**)&original_dispatch_assert_queue);
+    serialQueue = dispatch_queue_create("com.3h6-1.imread_queue", DISPATCH_QUEUE_SERIAL);
+    chats = [NSMutableDictionary dictionary];
+    msgs = [NSMutableDictionary dictionary];
 }
