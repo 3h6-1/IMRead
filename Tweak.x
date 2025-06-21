@@ -7,7 +7,7 @@ static void (*original_dispatch_assert_queue)(dispatch_queue_t queue);
 static NCNotificationStructuredListViewController* notifController;
 static dispatch_queue_t serialQueue;
 // These let us do message lookup in O(1) time complexity.
-NSMutableDictionary* chats, * msgs;
+static NSMutableDictionary* chats, * msgs;
 
 BOOL isMsgNotif(NCNotificationRequest* notif) {
     return [notif.sectionIdentifier isEqualToString:@"com.apple.MobileSMS"];
