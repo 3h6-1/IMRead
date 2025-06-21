@@ -14,9 +14,9 @@ BOOL isMsgNotif(NCNotificationRequest* notif) {
 }
 
 void performWhileConnectedToImagent(dispatch_block_t imcoreBlock) {
-    if ([[%c(IMDaemonController) sharedController] connectToDaemon]) {
+    if ([[%c(IMDaemonController) sharedController] connectToDaemon])
         dispatch_async(serialQueue, imcoreBlock);
-    } else
+    else
         NSLog(@"Failed to connect to imagent :(");
 }
 
