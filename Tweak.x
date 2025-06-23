@@ -54,12 +54,10 @@ static dispatch_queue_t serialQueue = nil;
 
 %hook IMDaemonController
 
-/*
- // allows SpringBoard to use methods from IMCore
- - (unsigned)_capabilities {
- return 17159;
- }
-*/
+// allows SpringBoard to use methods from IMCore
+- (unsigned)_capabilities {
+    return 17159;
+}
 
 // for iOS 16+
 - (unsigned long long)processCapabilities {
@@ -72,6 +70,7 @@ static dispatch_queue_t serialQueue = nil;
 %hook NCBulletinActionRunner
 
 - (void)executeAction:(NCNotificationAction*)action fromOrigin:(NSString*)origin endpoint:(BSServiceConnectionEndpoint*)endpoint withParameters:(id)params completion:(id)block {
+    %log;
     if ([action.identifier isEqualToString:UNNotificationDismissActionIdentifier])
         // Single notification clear
         remainingNotificationsToProcess = 1;
@@ -80,23 +79,13 @@ static dispatch_queue_t serialQueue = nil;
 
 %end
 
-%hook NCNotificationGroupList
+%hook NCBulletinNotificationSource
 
-// Called when clearing a stack via swipe
-- (void)setClearingAllNotificationRequestsForCellHorizontalSwipe:(BOOL)clearing {
-    if (clearing) {
-        remainingNotificationsToProcess = self.notificationCount;
-        NSLog(@"Setting up to process %llu notifications", remainingNotificationsToProcess);
-    }
-    %orig;
-}
-
-// Called when using clear button
-- (void)clearAll {
-    remainingNotificationsToProcess = self.notificationCount;
-    NSLog(@"clearAll: Setting up to process %llu notifications", remainingNotificationsToProcess);
-    %orig;
-}
+ - (void)dispatcher:(id)arg1 requestsClearingNotificationRequests:(__NSSetM*)requests {
+     %log;
+     remainingNotificationsToProcess = [requests count];
+     %orig;
+ }
 
 %end
 

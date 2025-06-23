@@ -1,9 +1,9 @@
 Package: com.3h6-1.imread
 Name: IMRead
 Version: 1.1.2
-Architecture: iphoneos-arm
+Architecture: iphoneos-arm64
 Description: Automatically marks messages as read after clearing their notifications
 Maintainer: noname
 Author: noname
 Section: Tweaks
-Depends: firmware (>= 16.0)
+Depends: firmware (>= 14.0)

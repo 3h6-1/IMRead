@@ -8,10 +8,6 @@
 @property NSArray* notificationSections;
 @end
 
-@interface NCNotificationGroupList : NSObject
-@property (nonatomic,readonly) unsigned long long notificationCount;
-@end
-
 @interface NCNotificationStructuredListViewController : NSObject
 @property NCNotificationMasterList* masterList;
 @end
@@ -48,4 +44,8 @@
 @end
 
 @interface __NSCFString : NSMutableString
+@end
+
+@interface __NSSetM : NSMutableSet
+- (unsigned long long)count;
 @end
