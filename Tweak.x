@@ -80,23 +80,14 @@ static dispatch_queue_t serialQueue = nil;
 
 %end
 
-%hook NCNotificationGroupList
+// Multiple notification clears
+%hook NCBulletinNotificationSource
 
-// Called when clearing a stack via swipe
-- (void)setClearingAllNotificationRequestsForCellHorizontalSwipe:(BOOL)clearing {
-    if (clearing) {
-        remainingNotificationsToProcess = self.notificationCount;
-        NSLog(@"Setting up to process %llu notifications", remainingNotificationsToProcess);
-    }
-    %orig;
-}
-
-// Called when using clear button
-- (void)clearAll {
-    remainingNotificationsToProcess = self.notificationCount;
-    NSLog(@"clearAll: Setting up to process %llu notifications", remainingNotificationsToProcess);
-    %orig;
-}
+ - (void)dispatcher:(id)arg1 requestsClearingNotificationRequests:(__NSSetM*)requests {
+     remainingNotificationsToProcess = [requests count];
+     NSLog(@"Setting up to process %llu notifications", remainingNotificationsToProcess);
+     %orig;
+ }
 
 %end
 

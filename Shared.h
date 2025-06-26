@@ -49,3 +49,7 @@
 
 @interface __NSCFString : NSMutableString
 @end
+
+@interface __NSSetM : NSMutableSet
+- (unsigned long long)count;
+@end
