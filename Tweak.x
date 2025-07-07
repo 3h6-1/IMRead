@@ -6,7 +6,7 @@ static unsigned long long remainingNotificationsToProcess = 0;
 static void (*original_dispatch_assert_queue)(dispatch_queue_t queue);
 static dispatch_queue_t serialQueue;
 
-void performWhileConnectedToImagent(dispatch_block_t imcoreBlock) {
+static void performWhileConnectedToImagent(dispatch_block_t imcoreBlock) {
     if ([[%c(IMDaemonController) sharedController] connectToDaemon])
         dispatch_async(serialQueue, imcoreBlock);
     else
