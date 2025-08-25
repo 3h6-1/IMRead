@@ -109,7 +109,7 @@ static void hooked_dispatch_assert_queue(dispatch_queue_t queue) {
         for (;;) {
             // Chat ID can be anything. This is just to re-cache the chats every so often so that it doesn't take like 15 sec to retrieve them when a message notif is cleared.
             performWhileConnectedToImagent(^{ [[%c(IMChatRegistry) sharedInstance] existingChatWithChatIdentifier:@"poop"]; });
-            [NSThread sleepForTimeInterval:1800.0f];
+            [NSThread sleepForTimeInterval:10800.0f];
         }
     });
 }
