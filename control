@@ -6,4 +6,4 @@ Description: Automatically marks messages as read after clearing their notificat
 Maintainer: 3h6_1
 Author: 3h6_1
 Section: Tweaks
-Depends: firmware (>= 14.0)
+Depends: firmware (>= 15.0)
