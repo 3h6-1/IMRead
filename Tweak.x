@@ -37,9 +37,9 @@ static void performWhileConnectedToImagent(dispatch_block_t imcoreBlock) {
                 }
                 
                 // Sometimes these methods don't work on the first try, so we have to keep calling them until they do.
-                for (int x = 0; x < 4 && !msg; x++) {
+                for (int x = 0; x < 8 && !msg; x++) {
                     [imchat loadMessagesUpToGUID:full_guid date:nil limit:0 loadImmediately:YES];
-                    for (int i = 0; i < 500 && !msg; i++)
+                    for (int i = 0; i < 1000 && !msg; i++)
                         msg = [imchat messageForGUID:full_guid];
                 }
                 NSLog(@"Message: %@", msg);
@@ -108,8 +108,8 @@ static void hooked_dispatch_assert_queue(dispatch_queue_t queue) {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
         for (;;) {
             // Chat ID can be anything. This is just to re-cache the chats every so often so that it doesn't take like 15 sec to retrieve them when a message notif is cleared.
-            performWhileConnectedToImagent(^{ [[%c(IMChatRegistry) sharedInstance] existingChatWithChatIdentifier:@"poop"]; });
-            [NSThread sleepForTimeInterval:10800.0f];
+            [NSTimer scheduledTimerWithTimeInterval:10800 repeats:YES block:^(NSTimer* t) { performWhileConnectedToImagent(^{ [[%c(IMChatRegistry) sharedInstance] existingChatWithChatIdentifier:@"poop"]; }); }];
+            // [NSThread sleepForTimeInterval:10800.0f];
         }
     });
 }
