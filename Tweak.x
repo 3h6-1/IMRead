@@ -108,8 +108,8 @@ static void hooked_dispatch_assert_queue(dispatch_queue_t queue) {
     serialQueue = dispatch_queue_create("com.3h6-1.imread_queue", DISPATCH_QUEUE_SERIAL);
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
         // Chat ID can be anything. This is just to refresh the chat registry every so often so that it doesn't take like 15 sec to retrieve them when a message notif is cleared.
-        void (^recache)(NSTimer*) = ^(NSTimer* t) { performWhileConnectedToImagent(^{ [[%c(IMChatRegistry) sharedInstance] existingChatWithChatIdentifier:@"poop"]; }); };
-        recache(nil);
-        [NSTimer scheduledTimerWithTimeInterval:10800 repeats:YES block:recache];
+        void (^refresh)(NSTimer*) = ^(NSTimer* t) { performWhileConnectedToImagent(^{ [[%c(IMChatRegistry) sharedInstance] existingChatWithChatIdentifier:@"poop"]; }); };
+        refresh(nil);
+        [NSTimer scheduledTimerWithTimeInterval:10800 repeats:YES block:refresh];
     });
 }
