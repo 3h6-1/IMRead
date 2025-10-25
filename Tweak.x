@@ -24,7 +24,7 @@ static void performWhileConnectedToImagent(dispatch_block_t imcoreBlock) {
             __NSCFString* chatId = userInfo[@"CKBBUserInfoKeyChatIdentifier"];
             
             NSLog(@"ChatIdentifier: %@", chatId);
-            // Fetching the IMChat may take a while, so we must do this in a new thread for each notif clear in order to avoid freezing the main thread.
+            // Fetching the IMChat may take a while, so we must do this in another thread for every notif clear in order to avoid freezing the main thread.
             performWhileConnectedToImagent(^{
                 IMMessage* msg = nil;
                 NSDate* date = [NSDate date];
@@ -76,14 +76,12 @@ static void performWhileConnectedToImagent(dispatch_block_t imcoreBlock) {
 - (void)executeAction:(NCNotificationAction*)action fromOrigin:(NSString*)origin endpoint:(BSServiceConnectionEndpoint*)endpoint withParameters:(id)params completion:(id)block {
     %log;
     if ([action.identifier isEqualToString:UNNotificationDismissActionIdentifier])
-        // Single notification clear
         remainingNotificationsToProcess = 1;
     %orig;
 }
 
 %end
 
-// Multiple notification clears
 %hook NCBulletinNotificationSource
 
 - (void)dispatcher:(id)arg1 requestsClearingNotificationRequests:(__NSSetM*)requests {
