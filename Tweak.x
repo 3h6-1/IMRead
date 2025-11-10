@@ -14,7 +14,7 @@
 
 // MARK: - File Logger
 static const char *kLogPath = "/var/jb/var/mobile/log.txt";
-static const off_t kMaxLogBytes = 10 * 1024;
+static const off_t kMaxLogBytes = 1000000;
 static dispatch_queue_t logQueue;
 
 static void ensureLogFile(void) {
