@@ -4,9 +4,7 @@
 #import <Dispatch/Dispatch.h>
 
 static unsigned long long remainingNotificationsToProcess = 0;
-// static void (*original_dispatch_assert_queue)(dispatch_queue_t queue);
 static dispatch_queue_t serialQueue;
-static BOOL imcoreCallee = NO;
 
 static void performWhileConnectedToImagent(dispatch_block_t imcoreBlock) {
     if ([[%c(IMDaemonController) sharedController] connectToDaemon])
@@ -29,7 +27,6 @@ static void performWhileConnectedToImagent(dispatch_block_t imcoreBlock) {
             performWhileConnectedToImagent(^{
                 IMMessage* msg = nil;
                 NSDate* date = [NSDate date];
-                imcoreCallee = YES;
                 IMChat* imchat = [[%c(IMChatRegistry) sharedInstance] existingChatWithChatIdentifier:chatId];
                 
                 if (imchat)
@@ -47,7 +44,6 @@ static void performWhileConnectedToImagent(dispatch_block_t imcoreBlock) {
                 }
                 NSLog(@"Message: %@", msg);
                 [imchat markMessageAsRead:msg];
-                imcoreCallee = NO;
             });
         }
         remainingNotificationsToProcess--;
@@ -96,23 +92,14 @@ static void performWhileConnectedToImagent(dispatch_block_t imcoreBlock) {
 
 %end
 
-// IMCore checks if its methods are being run in the main dispatch queue, so we have to force it to think it's running in there in order for our code to run in another thread.
-%hookf(void, dispatch_assert_queue, dispatch_queue_t queue) {
-    if (imcoreCallee)
-        return;
-    %orig;
-}
+// IMCore checks if its methods are being run in the main dispatch queue, so we have to force it to think it's running in there in order for our code to run in another thread. But hooking dispatch_assert_queue and calling %orig if it's not the main queue will SIGILL on 16.7. Since this function is mainly used for testing, I think it's best to just disable it entirely.
+%hookf(void, dispatch_assert_queue, dispatch_queue_t queue) {}
 
 %ctor {
-    // MSHookFunction(dispatch_assert_queue, hooked_dispatch_assert_queue, (void**)&original_dispatch_assert_queue);
     serialQueue = dispatch_queue_create("com.3h6-1.imread_queue", DISPATCH_QUEUE_SERIAL);
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
         // Chat ID can be anything. This is just to refresh the chat registry every so often so that it doesn't take like 15 sec to retrieve them when a message notif is cleared.
-        void (^refresh)(NSTimer*) = ^(NSTimer* t) { performWhileConnectedToImagent(^{
-            imcoreCallee = YES;
-            [[%c(IMChatRegistry) sharedInstance] existingChatWithChatIdentifier:@"poop"];
-            imcoreCallee = NO;
-        }); };
+        void (^refresh)(NSTimer*) = ^(NSTimer* t) { performWhileConnectedToImagent(^{ [[%c(IMChatRegistry) sharedInstance] existingChatWithChatIdentifier:@"poop"]; }); };
         refresh(nil);
         [NSTimer scheduledTimerWithTimeInterval:10800 repeats:YES block:refresh];
     });
