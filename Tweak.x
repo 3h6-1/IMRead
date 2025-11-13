@@ -4,6 +4,7 @@
 #import <Dispatch/Dispatch.h>
 
 static unsigned long long remainingNotificationsToProcess = 0;
+static void (*original_dispatch_assert_queue)(dispatch_queue_t queue);
 static dispatch_queue_t serialQueue;
 
 static void performWhileConnectedToImagent(dispatch_block_t imcoreBlock) {
@@ -92,10 +93,16 @@ static void performWhileConnectedToImagent(dispatch_block_t imcoreBlock) {
 
 %end
 
-// IMCore checks if its methods are being run in the main dispatch queue, so we have to force it to think it's running in there in order for our code to run in another thread. But hooking dispatch_assert_queue and calling %orig if it's not the main queue will SIGILL on 16.7. Since this function is mainly used for testing, I think it's best to just disable it entirely.
-%hookf(void, dispatch_assert_queue, dispatch_queue_t queue) {}
+static void hooked_dispatch_assert_queue(dispatch_queue_t queue) {
+    if (queue == dispatch_get_main_queue())
+        return;
+    
+    original_dispatch_assert_queue(queue);
+}
 
 %ctor {
+    // IMCore checks if its methods are being run in the main dispatch queue, so we have to force it to think it's running in there in order for our code to run in another thread.
+    MSHookFunction(dispatch_assert_queue, hooked_dispatch_assert_queue, (void**)&original_dispatch_assert_queue);
     serialQueue = dispatch_queue_create("com.3h6-1.imread_queue", DISPATCH_QUEUE_SERIAL);
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
         // Chat ID can be anything. This is just to refresh the chat registry every so often so that it doesn't take like 15 sec to retrieve them when a message notif is cleared.
