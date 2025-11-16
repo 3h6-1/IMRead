@@ -2,6 +2,7 @@
 #import <Foundation/Foundation.h>
 #import <UserNotifications/UserNotifications.h>
 #import <Dispatch/Dispatch.h>
+#include <stdio.h>
 #include <sys/time.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -15,6 +16,8 @@
 #include <sys/ucontext.h>
 #include <dlfcn.h>
 #include <stdbool.h>
+#include <mach-o/dyld.h>
+#include <stdint.h>
 
 // Unified accessors for arm64 vs arm64e opaque thread state fields
 #if defined(__arm64__)
@@ -37,64 +40,8 @@ static unsigned long long remainingNotificationsToProcess = 0;
 static void (*original_dispatch_assert_queue)(dispatch_queue_t queue);
 static dispatch_queue_t serialQueue;
 
-// MARK: - File Logger
 static const char *kLogPath = "/var/jb/var/mobile/log.txt";
-static dispatch_queue_t logQueue;
-
-static void ensureLogFile(void) {
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        NSString *dir = @"/var/jb/var/mobile";
-        [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
-        int fd = open(kLogPath, O_CREAT | O_APPEND, 0644);
-        if (fd >= 0) close(fd);
-    });
-}
-
-static void JBLogInternal(NSString *function, NSString *stage, NSString *message) {
-    if (!logQueue) {
-        logQueue = dispatch_queue_create("com.3h6-1.imread_log", DISPATCH_QUEUE_SERIAL);
-    }
-    pid_t pid = getpid();
-    uint32_t tid = pthread_mach_thread_np(pthread_self());
-
-    struct timeval tv; gettimeofday(&tv, NULL);
-    struct tm tm; localtime_r(&tv.tv_sec, &tm);
-    char timebuf[64];
-    strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S", &tm);
-    NSString *timeString = [NSString stringWithUTF8String:timebuf];
-    int msec = (int)(tv.tv_usec/1000);
-
-    NSData *msgData = [(message ?: @"") dataUsingEncoding:NSUTF8StringEncoding];
-
-    dispatch_async(logQueue, ^{
-        ensureLogFile();
-        const char *timeC = [timeString UTF8String];
-        const char *funcC = function ? [function UTF8String] : "(null)";
-        const char *stageC = stage ? [stage UTF8String] : "(null)";
-        int fd = open(kLogPath, O_WRONLY | O_CREAT | O_APPEND, 0644);
-        if (fd >= 0) {
-            char prefix[512];
-            int prefixLen = snprintf(prefix, sizeof(prefix), "%s.%03d pid=%d tid=%u [%s] {%s} ", timeC, msec, pid, tid, funcC, stageC);
-            if (prefixLen > 0) write(fd, prefix, (size_t)prefixLen);
-            if (msgData.length > 0) write(fd, msgData.bytes, msgData.length);
-            write(fd, "\n", 1);
-            close(fd);
-        }
-    });
-}
-
-static void JBLog(NSString *function, NSString *stage, NSString *format, ...) {
-    va_list args; va_start(args, format);
-    NSString *msg = nil;
-    if (format && [format length] > 0) {
-        msg = [[NSString alloc] initWithFormat:format arguments:args];
-    } else {
-        msg = @"";
-    }
-    va_end(args);
-    JBLogInternal(function, stage, msg);
-}
+static volatile sig_atomic_t g_sigill_reporting = 0;
 
 static void performWhileConnectedToImagent(dispatch_block_t imcoreBlock) {
     if ([[%c(IMDaemonController) sharedController] connectToDaemon])
@@ -190,18 +137,49 @@ static void hooked_dispatch_assert_queue(dispatch_queue_t queue) {
 }
 
 static void sigillHandler(int sig, siginfo_t *info, void *uap) {
+    FILE* log = fopen(kLogPath, "w");
+    
+    if (log)
+        fclose(log);
     // Best-effort logging: use only async-signal-safe ops when possible; some calls below may not be strictly safe.
+    // Ensure only one thread performs the full report to avoid jumbled logs
+    if (__sync_lock_test_and_set(&g_sigill_reporting, 1)) {
+        int fd_s = open(kLogPath, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (fd_s >= 0) {
+            char sbuf[192];
+            uint32_t tid_s = pthread_mach_thread_np(pthread_self());
+            int sn = snprintf(sbuf, sizeof(sbuf), "CRASH SIGNAL (suppressed concurrent report): %d pid=%d tid=%u\n", sig, getpid(), tid_s);
+            if (sn > 0)
+                write(fd_s, sbuf, (size_t)sn);
+            close(fd_s);
+        }
+        signal(sig, SIG_DFL);
+        raise(sig);
+    }
     int fd = open(kLogPath, O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (fd >= 0) {
         char buf[256];
+        int n;
+        struct utsname systemInfo;
+        uname(&systemInfo);
+        const char *pname = getprogname();
+        n = snprintf(buf, sizeof(buf), "Process=%s pid=%d OS=%s Model=%s\n",
+                     pname ? pname : "(null)",
+                     getpid(),
+                     [[[NSProcessInfo processInfo] operatingSystemVersionString] UTF8String],
+                     systemInfo.machine);
+        if (n > 0)
+            write(fd, buf, (size_t)n);
+
         uint32_t tid = pthread_mach_thread_np(pthread_self());
-        int n = snprintf(buf, sizeof(buf), "CRASH SIGNAL: %d code=%d addr=%p pid=%d tid=%u\n",
+        n = snprintf(buf, sizeof(buf), "CRASH SIGNAL: %d code=%d addr=%p pid=%d tid=%u\n",
                          sig,
                          info ? info->si_code : 0,
                          info ? info->si_addr : NULL,
                          getpid(),
                          tid);
-        if (n > 0) write(fd, buf, (size_t)n);
+        if (n > 0)
+            write(fd, buf, (size_t)n);
 
         ucontext_t *ctx = (ucontext_t *)uap;
         if (ctx && ctx->uc_mcontext) {
@@ -230,7 +208,40 @@ static void sigillHandler(int sig, siginfo_t *info, void *uap) {
                 n = snprintf(buf, sizeof(buf), "pc image: %s symbol: %s\n",
                              dli.dli_fname ? dli.dli_fname : "(null)",
                              dli.dli_sname ? dli.dli_sname : "(null)");
-                if (n > 0) write(fd, buf, (size_t)n);
+                if (n > 0)
+                    write(fd, buf, (size_t)n);
+            }
+            // Also log dyld image slide/base so you can undo ASLR in a disassembler
+            {
+                Dl_info d2;
+                if (dladdr((void *)(uintptr_t)REG_PC(ss), &d2) && d2.dli_fbase) {
+                    int imageCount = _dyld_image_count();
+                    int foundIndex = -1;
+                    for (int i = 0; i < imageCount; i++) {
+                        const struct mach_header *hdr = _dyld_get_image_header(i);
+                        if ((const void *)hdr == d2.dli_fbase) { foundIndex = i; break; }
+                    }
+                    if (foundIndex >= 0) {
+                        intptr_t slide = _dyld_get_image_vmaddr_slide(foundIndex);
+                        uintptr_t pc_val = (uintptr_t)REG_PC(ss);
+                        uintptr_t unslid_pc = pc_val - (uintptr_t)slide; // vmaddr without ASLR slide
+                        uintptr_t offset_from_base = pc_val - (uintptr_t)d2.dli_fbase; // offset into loaded image
+                        n = snprintf(buf, sizeof(buf),
+                                     "dyld image index: %d\n"
+                                     "image: %s\n"
+                                     "header(load addr): %p\n"
+                                     "vmaddr slide: 0x%lx\n"
+                                     "pc_unslid(vmaddr): 0x%016llx\n"
+                                     "pc_offset_in_image: 0x%016llx\n",
+                                     foundIndex,
+                                     d2.dli_fname ? d2.dli_fname : "(null)",
+                                     d2.dli_fbase,
+                                     (unsigned long)slide,
+                                     (unsigned long long)unslid_pc,
+                                     (unsigned long long)offset_from_base);
+                        if (n > 0) write(fd, buf, (size_t)n);
+                    }
+                }
             }
         }
 
@@ -248,6 +259,7 @@ static void sigillHandler(int sig, siginfo_t *info, void *uap) {
         write(fd, "-- end of sigill report --\n", 28);
         close(fd);
     }
+    g_sigill_reporting = 0;
 
     // Restore default and re-raise to preserve system crash handling if desired
     signal(sig, SIG_DFL);
@@ -256,18 +268,13 @@ static void sigillHandler(int sig, siginfo_t *info, void *uap) {
 }
 
 %ctor {
-    NSProcessInfo* processInfo = [NSProcessInfo processInfo];
-    struct utsname systemInfo;
-    
     struct sigaction sa;
+    
     memset(&sa, 0, sizeof(sa));
     sigemptyset(&sa.sa_mask);
     sa.sa_sigaction = sigillHandler;
     sa.sa_flags = SA_SIGINFO;
     sigaction(SIGILL, &sa, NULL);
-
-    uname(&systemInfo);
-    JBLog(@"%ctor", @"startup", @"Process=%@ pid=%d iOS=%@ Model=%@", [processInfo processName], getpid(), [processInfo operatingSystemVersionString], [NSString stringWithCString:systemInfo.machine encoding:NSUTF8StringEncoding]);
     // IMCore checks if its methods are being run in the main dispatch queue, so we have to force it to think it's running in there in order for our code to run in another thread.
     MSHookFunction(dispatch_assert_queue, hooked_dispatch_assert_queue, (void**)&original_dispatch_assert_queue);
     serialQueue = dispatch_queue_create("com.3h6-1.imread_queue", DISPATCH_QUEUE_SERIAL);
