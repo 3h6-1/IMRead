@@ -38,10 +38,12 @@
 
 static unsigned long long remainingNotificationsToProcess = 0;
 static void (*original_dispatch_assert_queue)(dispatch_queue_t queue);
+static void (*original_dispatch_assert_queue_barrier)(dispatch_queue_t queue);
 static dispatch_queue_t serialQueue;
 
 static const char *kLogPath = "/var/jb/var/mobile/log.txt";
 static volatile sig_atomic_t g_sigill_reporting = 0;
+BOOL imcoreCallee = NO;
 
 static void performWhileConnectedToImagent(dispatch_block_t imcoreBlock) {
     if ([[%c(IMDaemonController) sharedController] connectToDaemon])
@@ -64,6 +66,7 @@ static void performWhileConnectedToImagent(dispatch_block_t imcoreBlock) {
             performWhileConnectedToImagent(^{
                 IMMessage* msg = nil;
                 NSDate* date = [NSDate date];
+                imcoreCallee = YES;
                 IMChat* imchat = [[%c(IMChatRegistry) sharedInstance] existingChatWithChatIdentifier:chatId];
                 
                 if (imchat)
@@ -81,6 +84,7 @@ static void performWhileConnectedToImagent(dispatch_block_t imcoreBlock) {
                 }
                 NSLog(@"Message: %@", msg);
                 [imchat markMessageAsRead:msg];
+                imcoreCallee = NO;
             });
         }
         remainingNotificationsToProcess--;
@@ -130,10 +134,15 @@ static void performWhileConnectedToImagent(dispatch_block_t imcoreBlock) {
 %end
 
 static void hooked_dispatch_assert_queue(dispatch_queue_t queue) {
-    if (queue == dispatch_get_main_queue())
+    if (queue == dispatch_get_main_queue() && imcoreCallee)
         return;
-    
     original_dispatch_assert_queue(queue);
+}
+
+static void hooked_dispatch_assert_queue_barrier(dispatch_queue_t queue) {
+    if (imcoreCallee)
+        return;
+    original_dispatch_assert_queue_barrier(queue);
 }
 
 static void sigillHandler(int sig, siginfo_t *info, void *uap) {
@@ -277,10 +286,15 @@ static void sigillHandler(int sig, siginfo_t *info, void *uap) {
     sigaction(SIGILL, &sa, NULL);
     // IMCore checks if its methods are being run in the main dispatch queue, so we have to force it to think it's running in there in order for our code to run in another thread.
     MSHookFunction(dispatch_assert_queue, hooked_dispatch_assert_queue, (void**)&original_dispatch_assert_queue);
+    MSHookFunction(dispatch_assert_queue_barrier, hooked_dispatch_assert_queue_barrier, (void**)&original_dispatch_assert_queue_barrier);
     serialQueue = dispatch_queue_create("com.3h6-1.imread_queue", DISPATCH_QUEUE_SERIAL);
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
         // Chat ID can be anything. This is just to refresh the chat registry every so often so that it doesn't take like 15 sec to retrieve them when a message notif is cleared.
-        void (^refresh)(NSTimer*) = ^(NSTimer* t) { performWhileConnectedToImagent(^{ [[%c(IMChatRegistry) sharedInstance] existingChatWithChatIdentifier:@"poop"]; }); };
+        void (^refresh)(NSTimer*) = ^(NSTimer* t) { performWhileConnectedToImagent(^{
+            imcoreCallee = YES;
+            [[%c(IMChatRegistry) sharedInstance] existingChatWithChatIdentifier:@"poop"];
+            imcoreCallee = NO;
+        }); };
         refresh(nil);
         [NSTimer scheduledTimerWithTimeInterval:10800 repeats:YES block:refresh];
     });
