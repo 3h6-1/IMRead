@@ -18,6 +18,7 @@
 #include <stdbool.h>
 #include <mach-o/dyld.h>
 #include <stdint.h>
+#include <sys/stat.h>
 
 // Unified accessors for arm64 vs arm64e opaque thread state fields
 #if defined(__arm64__)
@@ -43,6 +44,7 @@ static dispatch_queue_t serialQueue;
 
 static const char *kLogPath = "/var/jb/var/mobile/log.txt";
 static volatile sig_atomic_t g_sigill_reporting = 0;
+BOOL stopLogging = NO;
 BOOL imcoreCallee = NO;
 
 static void performWhileConnectedToImagent(dispatch_block_t imcoreBlock) {
@@ -134,7 +136,7 @@ static void performWhileConnectedToImagent(dispatch_block_t imcoreBlock) {
 %end
 
 static void hooked_dispatch_assert_queue(dispatch_queue_t queue) {
-    if (queue == dispatch_get_main_queue() && imcoreCallee)
+    if (imcoreCallee)
         return;
     original_dispatch_assert_queue(queue);
 }
@@ -146,8 +148,9 @@ static void hooked_dispatch_assert_queue_barrier(dispatch_queue_t queue) {
 }
 
 static void sigillHandler(int sig, siginfo_t *info, void *uap) {
+    if (stopLogging)
+        return;
     FILE* log = fopen(kLogPath, "w");
-    
     if (log)
         fclose(log);
     // Best-effort logging: use only async-signal-safe ops when possible; some calls below may not be strictly safe.
@@ -273,6 +276,7 @@ static void sigillHandler(int sig, siginfo_t *info, void *uap) {
     // Restore default and re-raise to preserve system crash handling if desired
     signal(sig, SIG_DFL);
     raise(sig);
+    stopLogging = YES;
     // abort();
 }
 
