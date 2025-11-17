@@ -273,7 +273,7 @@ static void sigillHandler(int sig, siginfo_t *info, void *uap) {
     // Restore default and re-raise to preserve system crash handling if desired
     signal(sig, SIG_DFL);
     raise(sig);
-    abort();
+    // abort();
 }
 
 %ctor {
@@ -283,7 +283,18 @@ static void sigillHandler(int sig, siginfo_t *info, void *uap) {
     sigemptyset(&sa.sa_mask);
     sa.sa_sigaction = sigillHandler;
     sa.sa_flags = SA_SIGINFO;
+    sigaction(SIGHUP, &sa, NULL);
+    sigaction(SIGINT, &sa, NULL);
+    sigaction(SIGQUIT, &sa, NULL);
     sigaction(SIGILL, &sa, NULL);
+    sigaction(SIGTRAP, &sa, NULL);
+    sigaction(SIGABRT, &sa, NULL);
+    sigaction(SIGFPE, &sa, NULL);
+    sigaction(SIGKILL, &sa, NULL);
+    sigaction(SIGSEGV, &sa, NULL);
+    sigaction(SIGPIPE, &sa, NULL);
+    sigaction(SIGALRM, &sa, NULL);
+    sigaction(SIGTERM, &sa, NULL);
     // IMCore checks if its methods are being run in the main dispatch queue, so we have to force it to think it's running in there in order for our code to run in another thread.
     MSHookFunction(dispatch_assert_queue, hooked_dispatch_assert_queue, (void**)&original_dispatch_assert_queue);
     MSHookFunction(dispatch_assert_queue_barrier, hooked_dispatch_assert_queue_barrier, (void**)&original_dispatch_assert_queue_barrier);
