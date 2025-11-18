@@ -148,26 +148,14 @@ static void hooked_dispatch_assert_queue_barrier(dispatch_queue_t queue) {
 }
 
 static void sigillHandler(int sig, siginfo_t *info, void *uap) {
-    if (stopLogging)
+    if (stopLogging || __sync_lock_test_and_set(&g_sigill_reporting, 1)) {
+        signal(sig, SIG_DFL);
+        raise(sig);
         return;
+    }
     FILE* log = fopen(kLogPath, "w");
     if (log)
         fclose(log);
-    // Best-effort logging: use only async-signal-safe ops when possible; some calls below may not be strictly safe.
-    // Ensure only one thread performs the full report to avoid jumbled logs
-    if (__sync_lock_test_and_set(&g_sigill_reporting, 1)) {
-        int fd_s = open(kLogPath, O_WRONLY | O_CREAT | O_APPEND, 0644);
-        if (fd_s >= 0) {
-            char sbuf[192];
-            uint32_t tid_s = pthread_mach_thread_np(pthread_self());
-            int sn = snprintf(sbuf, sizeof(sbuf), "CRASH SIGNAL (suppressed concurrent report): %d pid=%d tid=%u\n", sig, getpid(), tid_s);
-            if (sn > 0)
-                write(fd_s, sbuf, (size_t)sn);
-            close(fd_s);
-        }
-        signal(sig, SIG_DFL);
-        raise(sig);
-    }
     int fd = open(kLogPath, O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (fd >= 0) {
         char buf[256];
