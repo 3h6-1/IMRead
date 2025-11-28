@@ -147,7 +147,7 @@ static void hooked_dispatch_assert_queue_barrier(dispatch_queue_t queue) {
     original_dispatch_assert_queue_barrier(queue);
 }
 
-static void sigillHandler(int sig, siginfo_t *info, void *uap) {
+static void signalHandler(int sig, siginfo_t *info, void *uap) {
     if (stopLogging || __sync_lock_test_and_set(&g_sigill_reporting, 1)) {
         signal(sig, SIG_DFL);
         raise(sig);
@@ -273,7 +273,7 @@ static void sigillHandler(int sig, siginfo_t *info, void *uap) {
     
     memset(&sa, 0, sizeof(sa));
     sigemptyset(&sa.sa_mask);
-    sa.sa_sigaction = sigillHandler;
+    sa.sa_sigaction = signalHandler;
     sa.sa_flags = SA_SIGINFO;
     sigaction(SIGHUP, &sa, NULL);
     sigaction(SIGINT, &sa, NULL);
